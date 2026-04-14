@@ -1,0 +1,856 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>CartPole - 你能平衡这根杆吗？</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 1em;
+            text-align: left;
+        }
+        h1 { margin-top: 1em; }
+        canvas { border: 1px black solid; display: block; }
+        .game-container {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        @media (max-width: 700px) {
+            .game-container {
+                flex-direction: column;
+            }
+        }
+        #state-panel {
+            margin-top: 0;
+            padding: 10px 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #f9f9f9;
+        }
+        #state-panel h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.95em;
+            color: #333;
+        }
+        .state-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .state-item {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 5px 8px;
+            text-align: center;
+        }
+        .state-item .label {
+            font-size: 0.75em;
+            color: #888;
+            display: block;
+        }
+        .state-item .value {
+            font-size: 1.05em;
+            font-family: "SF Mono", "Fira Code", monospace;
+            color: #2563eb;
+            font-weight: bold;
+        }
+        .state-note {
+            margin-top: 8px;
+            font-size: 0.8em;
+            color: #999;
+            font-style: italic;
+        }
+        #prediction-section {
+            margin-top: 12px;
+            border-top: 1px solid #ddd;
+            padding-top: 10px;
+        }
+        #prediction-section h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.95em;
+            color: #333;
+        }
+        .pred-row {
+            font-family: "SF Mono", "Fira Code", monospace;
+            font-size: 0.85em;
+            padding: 5px 8px;
+            margin-bottom: 4px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            background: #fff;
+            color: #333;
+        }
+        .pred-row.active {
+            background: #e0edff;
+            border-color: #2563eb;
+            font-weight: bold;
+        }
+        .pred-label {
+            display: block;
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 2px;
+            font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+        .pred-row.active .pred-label {
+            color: #2563eb;
+        }
+        #advanced-div {
+            display: none;
+            vertical-align: top;
+            border: 1px solid black;
+            padding: 0 1em 1em 1em;
+            margin-top: 10px;
+            max-width: 500px;
+        }
+        #advanced-div .code-wrapper {
+            border: 1px dashed gray;
+            padding: 0.5em;
+            display: inline-block;
+        }
+        #advanced-div textarea {
+            margin-left: 2em;
+            font-family: monospace;
+        }
+        .controls-row label { margin-right: 8px; }
+        .controls-row input[type="button"] { font-size: large; }
+        #start { font-weight: bold; }
+    </style>
+</head>
+
+<body>
+<div id="big-container">
+
+<h1>你能平衡这根杆吗？</h1>
+
+<p>
+    这是一根立在小车上的杆。你能让它保持平衡多久？
+</p>
+<p style="font-size: smaller;">
+    用 <i>左右方向键</i>（或 <code>h/l</code>、<code>a/d</code>）推动小车。<br/>
+    用 <i>开始按钮</i>（或空格键）暂停、继续和重新开始。
+</p>
+
+<p class="controls-row">
+    <input type="button" id="start" style="font-weight:bold; font-size: large;" value="开始">
+    <input type="button" id="reset" value="重置" disabled>
+    最高分: <span id="hi-score">0.0</span>
+</p>
+
+<div class="game-container">
+    <div style="display: inline-block;">
+        <canvas id="canvas" width="400" height="400">
+            你的浏览器不支持 HTML5 canvas :(
+        </canvas>
+        <p>
+            <label for="immortal-checkbox">不死模式: </label>
+            <input type="checkbox" name="immortal-checkbox" id="immortal-checkbox" autocomplete="off">
+
+            <br/>
+
+            模式:
+            <input type="radio" name="auto-radio" id="manual" checked="checked" autocomplete="off"><label for="manual">手动</label>
+            <input type="radio" name="auto-radio" id="auto" autocomplete="off"><label for="auto">自动</label>
+        </p>
+    </div>
+
+    <!-- State display panel -->
+    <div id="state-panel">
+        <h3>实时状态 (State)</h3>
+        <div class="state-grid">
+            <div class="state-item">
+                <span class="label">x (小车位置 px)</span>
+                <span class="value" id="st-x">0.00</span>
+            </div>
+            <div class="state-item">
+                <span class="label">x&#x0307; (小车速度)</span>
+                <span class="value" id="st-xdot">0.00</span>
+            </div>
+            <div class="state-item">
+                <span class="label">&theta; (杆角度 deg)</span>
+                <span class="value" id="st-theta">0.00</span>
+            </div>
+            <div class="state-item">
+                <span class="label">&theta;&#x0307; (杆角速度)</span>
+                <span class="value" id="st-thetadot">0.00</span>
+            </div>
+        </div>
+        <p class="state-note">这就是 DQN 看到的 4 个输入数字</p>
+
+        <div id="prediction-section">
+            <h3>下一帧预测 — 这就是 env.step() 的返回值</h3>
+            <div class="pred-row" id="pred-left">
+                <span class="pred-label">如果向左推 (action=&larr;):</span>
+                <span class="pred-values" id="pred-left-vals">x' = —   v' = —   &theta;' = —&deg;   &omega;' = —</span>
+            </div>
+            <div class="pred-row" id="pred-none">
+                <span class="pred-label">如果不推 (action=—):</span>
+                <span class="pred-values" id="pred-none-vals">x' = —   v' = —   &theta;' = —&deg;   &omega;' = —</span>
+            </div>
+            <div class="pred-row" id="pred-right">
+                <span class="pred-label">如果向右推 (action=&rarr;):</span>
+                <span class="pred-values" id="pred-right-vals">x' = —   v' = —   &theta;' = —&deg;   &omega;' = —</span>
+            </div>
+            <p class="state-note">对应 Python: next_state, reward, terminated, truncated, _ = env.step(action)</p>
+        </div>
+    </div>
+</div>
+
+<!-- Custom code section -->
+<div id="advanced-div">
+    <p style="max-width: 400px;">写一段代码来自动平衡小车！</p>
+    <div class="code-wrapper">
+        <code>
+            function pickAction(x, xDot, theta, thetaDot, t, obj) {<br/>
+                <textarea id="code-box" rows="7" cols="33">
+if (theta < -Math.PI / 50) {
+    return RIGHT_PUSH;
+} else if (theta > Math.PI / 50) {
+    return LEFT_PUSH;
+} else {
+    return NO_PUSH;
+}
+                </textarea>
+            <br/>
+            }<br/>
+        </code>
+        <br/>
+        <input type="button" id="run-code" value="运行这段代码">
+        <span id="run-confirm"></span>
+    </div>
+    <p style="font-size: smaller; max-width: 400px;">
+        函数 <code>pickAction</code> 会在每一帧被调用。
+        它应该返回三种动作之一: <code>LEFT_PUSH</code>、<code>RIGHT_PUSH</code> 或 <code>NO_PUSH</code>。<br/>
+        <code>x</code> 是小车位置 (像素)，<code>theta</code> 是杆角度 (弧度，顺时针为正)，<code>t</code> 是时间步数。<br/>
+        <code>obj</code> 是一个对象，可以用来保存全局状态。
+    </p>
+</div>
+
+<p style="margin-top: 1em;">
+这是控制理论中经典的<a href="https://en.wikipedia.org/wiki/Inverted_pendulum" target="_blank">倒立摆问题</a>，也是强化学习 (RL) 中著名的 <a href="https://gymnasium.farama.org/environments/classic_control/cart_pole/" target="_blank">CartPole 环境</a>。
+通过合适的策略，你可以无限期地稳定小车。这个策略可以来自数学原理（控制理论），也可以来自经验（强化学习 / DQN）。
+</p>
+
+</div>
+
+<script>
+// ========================
+// === GLOBAL VARIABLES ===
+// ========================
+var canvas = document.getElementById('canvas');
+var bigContainer = document.getElementById('big-container');
+var context = canvas.getContext('2d');
+var startButton = document.getElementById('start');
+var resetButton = document.getElementById('reset');
+var highScoreSpan = document.getElementById('hi-score');
+var manualButton = document.getElementById('manual');
+var autoButton = document.getElementById('auto');
+var advancedDiv = document.getElementById('advanced-div');
+var codeBox = document.getElementById('code-box');
+var codeRunButton = document.getElementById('run-code');
+var codeRunSpan = document.getElementById('run-confirm');
+var immortalityCheckBox = document.getElementById('immortal-checkbox');
+
+// State display elements
+var stXEl = document.getElementById('st-x');
+var stXDotEl = document.getElementById('st-xdot');
+var stThetaEl = document.getElementById('st-theta');
+var stThetaDotEl = document.getElementById('st-thetadot');
+
+// Constants of simulation
+const g = 10; // strength of gravity
+const l = 200; // length of pole
+const Mm = 1; // Ratio of cart mass to pole mass
+const strength = 15; // How strongly user input accelerates cart
+const friction = 0.15; // Damping constant of left-right motion
+const dt = 1e-3; // Time step
+const stepsPerFrame = 50; // Number of steps before drawing a frame
+const framesPerSec = 100; // Number of frames to draw each second
+const stepsPerSec = stepsPerFrame * framesPerSec;
+const LEFT_PUSH = -1;
+const RIGHT_PUSH = 1;
+const NO_PUSH = 0;
+
+// Current state
+var running = false;
+var automaticMode = false;
+var mouseDown = false;
+var throttle = NO_PUSH;
+var x = canvas.width / 2;
+var xDot = 0;
+var theta = 0;
+var thetaDot = 0;
+var t = 0;
+var needToInitialize = true;
+var obj = {};
+var highScore = 0;
+
+// Visual Elements
+var defaultCanvasWidth = canvas.width;
+var defaultCanvasHeight = canvas.height;
+var platformY = 325;
+var platformWidth = 250;
+var platformLeft = (canvas.width - platformWidth) / 2;
+var platformRight = platformLeft + platformWidth;
+var cartWidth = 60;
+var cartHeight = 40;
+var wheelRadius = 5;
+var bulbRadius = 10;
+var poleThickness = 4;
+var poleLength = l;
+var arrowWidth = 40;
+var arrowHeight = 40;
+var fatFingerSize = 5;
+var arrowY = platformY + 20;
+var arrowGap = 80;
+
+// =============================
+// === RESPONSIVE WEB DESIGN ===
+// =============================
+function resizeCanvas() {
+    var containerWidth = parseInt(
+        window.getComputedStyle(bigContainer).getPropertyValue("width")
+    );
+    if (containerWidth < defaultCanvasWidth) {
+        canvas.width = Math.max(containerWidth, platformWidth);
+    } else {
+        canvas.width = defaultCanvasWidth;
+    }
+    platformLeft = (canvas.width - platformWidth) / 2;
+    platformRight = platformLeft + platformWidth;
+    arrowGap = (canvas.width / 2 - arrowWidth - 2 * fatFingerSize) / 2;
+}
+function resizeAndPaintCanvas() { resizeCanvas(); paintCanvas(); }
+window.onresize = resizeAndPaintCanvas;
+
+// Make arrows bigger if we are on a touch screen
+var isTouch = (('ontouchstart' in window) || (navigator.msMaxTouchPoints > 0));
+if (isTouch) {
+    canvas.height = 450;
+    arrowWidth = 80;
+    arrowHeight = 80;
+    fatFingerSize = 10;
+    arrowY = platformY + 25;
+    arrowGap = 40;
+}
+
+// =================
+// === GAME LOOP ===
+// =================
+function doStep() {
+    var cos = Math.cos(theta);
+    var sin = Math.sin(theta);
+    var F = throttle * strength;
+    var det = (l * cos ** 2 - l * (1 + Mm));
+    var xDotDot = (-l * F + l * l * sin * (thetaDot ** 2) - g * l * sin * cos) / det;
+    var thetaDotDot = (-cos * F + l * cos * sin * (thetaDot ** 2) - g * sin * (1 + Mm)) / det;
+    xDotDot -= friction * xDot;
+
+    x += xDot * dt;
+    theta += thetaDot * dt;
+    xDot += xDotDot * dt;
+    thetaDot += thetaDotDot * dt;
+    t += 1;
+}
+
+var timeoutVar = 0;
+function simulate() {
+    for (var step = 0; step < stepsPerFrame; step++) {
+        doStep();
+    }
+    if (automaticMode) {
+        throttle = pickAction(x, xDot, theta, thetaDot, t, obj);
+    }
+    if (!immortalityCheckBox.checked && !cartPoleInBounds()) {
+        stopRunning();
+    } else {
+        timeoutVar = window.setTimeout(simulate, 1000 / framesPerSec);
+    }
+    paintCanvas();
+    updateStatePanel();
+}
+
+window.requestAnimFrame = (function (callback) {
+    return (window.requestAnimationFrame || window.webkitRequestAnimationFrame
+        || window.mozRequestAnimationFrame || window.oRequestAnimationFrame
+        || window.msRequestAnimationFrame ||
+        function (callback) {
+            window.setTimeout(callback, 1000 / framesPerSec);
+        });
+})();
+
+function cartPoleInBounds() {
+    var poleTipX = x - poleLength * Math.sin(theta);
+    var poleTipY = platformY - cartHeight - poleLength * Math.cos(theta);
+    return (
+        x > platformLeft - cartWidth / 2
+        && x < platformRight + cartWidth / 2
+        && poleTipY < platformY
+        && poleTipX > 0 && poleTipX < canvas.width
+    );
+}
+
+function cartPoleAlmostDead() {
+    var dist = Math.abs(x - canvas.width / 2);
+    var angle = Math.abs(theta);
+    var distDanger = platformWidth * 0.5 * 0.6;
+    var angleDanger = Math.PI / 6;
+    return (dist > distDanger || angle > angleDanger);
+}
+
+// ==========================
+// === CHANGING PLAYSTATE ===
+// ==========================
+function startStop() {
+    if (!running) {
+        startRunning();
+    } else {
+        pauseRunning();
+    }
+    paintCanvas();
+}
+
+var overlayText = "Press Start to Begin!";
+var overlayColor = "gray";
+
+function startRunning() {
+    running = true;
+    if (needToInitialize) {
+        initialize();
+    }
+    if (!automaticMode) {
+        attachListeners();
+    }
+    startButton.value = "暂停";
+    resetButton.disabled = true;
+    simulate();
+}
+
+function pauseRunning() {
+    running = false;
+    detachListeners();
+    overlayText = "Simulation Paused";
+    overlayColor = "gray";
+    startButton.value = "继续";
+    resetButton.disabled = false;
+    clearTimeout(timeoutVar);
+}
+
+function stopRunning() {
+    running = false;
+    detachListeners();
+    needToInitialize = true;
+    overlayText = "You lost!";
+    overlayColor = "red";
+    startButton.value = "再来一局";
+    resetButton.disabled = true;
+    clearTimeout(timeoutVar);
+
+    var score = t / stepsPerSec;
+    if (score > highScore) {
+        highScore = score;
+        highScoreSpan.innerHTML = highScore.toFixed(1);
+    }
+}
+
+function reset() {
+    running = false;
+    startButton.value = "开始";
+    overlayText = "Press Start to Begin!";
+    overlayColor = "gray";
+    initialize();
+    clearTimeout(timeoutVar);
+    paintCanvas();
+    updateStatePanel();
+}
+
+function initialize() {
+    x = canvas.width / 2;
+    xDot = 0;
+    theta = Math.random() * 0.1 - 0.05;
+    thetaDot = 0;
+    t = 0;
+    throttle = NO_PUSH;
+    mouseDown = false;
+    resetButton.disabled = true;
+    needToInitialize = false;
+}
+
+// ==========================
+// === STATE DISPLAY PANEL ==
+// ==========================
+
+// Pure function: run physics for `steps` iterations and return next state.
+// Same equations as doStep() but operates on local variables only.
+function previewStep(sx, sxDot, sTheta, sThetaDot, actionThrottle, steps) {
+    for (var i = 0; i < steps; i++) {
+        var cos = Math.cos(sTheta);
+        var sin = Math.sin(sTheta);
+        var F = actionThrottle * strength;
+        var det = (l * cos * cos - l * (1 + Mm));
+        var xDotDot = (-l * F + l * l * sin * (sThetaDot * sThetaDot) - g * l * sin * cos) / det;
+        var thetaDotDot = (-cos * F + l * cos * sin * (sThetaDot * sThetaDot) - g * sin * (1 + Mm)) / det;
+        xDotDot -= friction * sxDot;
+
+        sx += sxDot * dt;
+        sTheta += sThetaDot * dt;
+        sxDot += xDotDot * dt;
+        sThetaDot += thetaDotDot * dt;
+    }
+    // Check if predicted state would be out of bounds (same logic as cartPoleInBounds)
+    var poleTipX = sx - poleLength * Math.sin(sTheta);
+    var poleTipY = platformY - cartHeight - poleLength * Math.cos(sTheta);
+    var inBounds = (
+        sx > platformLeft - cartWidth / 2
+        && sx < platformRight + cartWidth / 2
+        && poleTipY < platformY
+        && poleTipX > 0 && poleTipX < canvas.width
+    );
+    return {
+        x: sx, xDot: sxDot, theta: sTheta, thetaDot: sThetaDot,
+        reward: 1,
+        terminated: !inBounds,
+        truncated: false
+    };
+}
+
+// Prediction display elements
+var predLeftRow = document.getElementById('pred-left');
+var predNoneRow = document.getElementById('pred-none');
+var predRightRow = document.getElementById('pred-right');
+var predLeftVals = document.getElementById('pred-left-vals');
+var predNoneVals = document.getElementById('pred-none-vals');
+var predRightVals = document.getElementById('pred-right-vals');
+
+function formatPrediction(s) {
+    var done = s.terminated;
+    return "x'=" + s.x.toFixed(2)
+        + "  v'=" + s.xDot.toFixed(2)
+        + "  \u03b8'=" + (s.theta * 180 / Math.PI).toFixed(1) + "\u00b0"
+        + "  \u03c9'=" + s.thetaDot.toFixed(2)
+        + "  | r=" + s.reward
+        + "  done=" + done + (done ? " \u26a0\ufe0f" : "");
+}
+
+function updateStatePanel() {
+    stXEl.textContent = x.toFixed(2);
+    stXDotEl.textContent = xDot.toFixed(2);
+    stThetaEl.textContent = (theta * 180 / Math.PI).toFixed(2);
+    stThetaDotEl.textContent = thetaDot.toFixed(2);
+
+    // Compute predictions for each action
+    var predLeft = previewStep(x, xDot, theta, thetaDot, LEFT_PUSH, stepsPerFrame);
+    var predNone = previewStep(x, xDot, theta, thetaDot, NO_PUSH, stepsPerFrame);
+    var predRight = previewStep(x, xDot, theta, thetaDot, RIGHT_PUSH, stepsPerFrame);
+
+    predLeftVals.textContent = formatPrediction(predLeft);
+    predNoneVals.textContent = formatPrediction(predNone);
+    predRightVals.textContent = formatPrediction(predRight);
+
+    // Highlight the row matching the current action
+    predLeftRow.className = "pred-row" + (throttle === LEFT_PUSH ? " active" : "");
+    predNoneRow.className = "pred-row" + (throttle === NO_PUSH ? " active" : "");
+    predRightRow.className = "pred-row" + (throttle === RIGHT_PUSH ? " active" : "");
+}
+
+// =============
+// === GOOEY ===
+// =============
+function drawDefaultCart(cartLeft, cartTop) {
+    // Draw the body
+    context.fillStyle = "blue";
+    context.fillRect(cartLeft, cartTop, cartWidth, cartHeight - 2 * wheelRadius);
+
+    // Draw the wheels
+    context.fillStyle = "brown";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(cartLeft + 2 * wheelRadius, platformY - wheelRadius,
+        wheelRadius, 0, 2 * Math.PI);
+    context.fill();
+    context.beginPath();
+    context.arc(cartLeft + cartWidth - 2 * wheelRadius, platformY - wheelRadius,
+        wheelRadius, 0, 2 * Math.PI);
+    context.fill();
+}
+
+// Draw a triangle arrow on canvas (replaces external arrow image)
+function drawCanvasArrow(cx, cy, w, h, pointLeft) {
+    context.beginPath();
+    if (pointLeft) {
+        context.moveTo(cx, cy + h / 2);        // left tip
+        context.lineTo(cx + w, cy);              // top right
+        context.lineTo(cx + w, cy + h);          // bottom right
+    } else {
+        context.moveTo(cx + w, cy + h / 2);    // right tip
+        context.lineTo(cx, cy);                  // top left
+        context.lineTo(cx, cy + h);              // bottom left
+    }
+    context.closePath();
+    context.fill();
+}
+
+function paintCanvas() {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw the ground
+    context.fillStyle = "black";
+    if (immortalityCheckBox.checked) {
+        context.fillRect(0, platformY, canvas.width, 2);
+        context.fillRect(0, platformY + 4, canvas.width, 2);
+    } else {
+        context.fillRect(platformLeft, platformY, platformWidth, 5);
+    }
+
+    // Draw the cart
+    var cartLeft = x - cartWidth / 2;
+    var cartTop = platformY - cartHeight;
+    drawDefaultCart(cartLeft, cartTop);
+
+    // Draw the pole
+    context.save();
+    context.fillStyle = "gray";
+    context.translate(x, cartTop);
+    context.rotate(Math.PI - theta);
+    context.beginPath();
+    context.rect(-poleThickness / 2, 0, poleThickness, poleLength);
+    context.fill();
+
+    // Draw the red bulb at the top of the pole
+    context.fillStyle = "red";
+    context.beginPath();
+    context.arc(0, poleLength, bulbRadius, 0, 2 * Math.PI);
+    context.fill();
+
+    context.restore();
+
+    if (!immortalityCheckBox.checked) {
+        // Show user's score
+        context.font = "24px Comic Sans MS";
+        context.fillStyle = "black";
+        context.textAlign = "center";
+        context.textBaseline = "top";
+        var score = t / stepsPerSec;
+        context.fillText("Score: " + score.toFixed(1), canvas.width / 2, 10);
+
+        // Flash "Danger!" if user is about to lose
+        context.fillStyle = "red";
+        context.textAlign = "center";
+        if (cartPoleAlmostDead()) {
+            if ((t * 3) % stepsPerSec < (stepsPerSec / 2)) {
+                context.fillText("Danger!", canvas.width / 2, 50);
+            }
+        }
+    }
+
+    // Draw the left and right arrows indicating current throttle status
+    function drawArrow(flip, thr) {
+        context.save();
+        context.globalAlpha = (throttle == thr) ? 1 : 0.2;
+
+        if (flip) {
+            // Right arrow
+            var ax = canvas.width - arrowGap - arrowWidth;
+            context.fillStyle = "#555";
+            drawCanvasArrow(ax, arrowY, arrowWidth, arrowHeight, false);
+        } else {
+            // Left arrow
+            context.fillStyle = "#555";
+            drawCanvasArrow(arrowGap, arrowY, arrowWidth, arrowHeight, true);
+        }
+
+        if (!automaticMode) {
+            // Draw boxes around arrows to show user they can click/touch
+            var bx = flip ? (canvas.width - arrowGap - arrowWidth) : arrowGap;
+            context.strokeStyle = "black";
+            context.lineWidth = 1;
+            context.beginPath();
+            context.rect(bx - fatFingerSize, arrowY,
+                arrowWidth + 2 * fatFingerSize, arrowHeight);
+            context.stroke();
+            context.globalAlpha = (throttle == thr) ? 0.5 : 0.05;
+            context.fillStyle = "gray";
+            context.fill();
+        }
+
+        context.restore();
+    }
+
+    drawArrow(false, LEFT_PUSH);
+    drawArrow(true, RIGHT_PUSH);
+
+    // Blur out the canvas if paused
+    if (!running) {
+        context.fillStyle = overlayColor;
+        context.globalAlpha = 0.5;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.globalAlpha = 1;
+
+        context.font = "32px Comic Sans MS";
+        context.fillStyle = "black";
+        context.textAlign = "center";
+        context.fillText(overlayText, canvas.width / 2, 40);
+    }
+}
+
+// ==========================
+// === KEYPRESS LISTENERS ===
+// ==========================
+document.onkeypress = function (e) {
+    e = e || window.event;
+    if (e.keyCode == 32 && document.activeElement.id == "") {
+        e.preventDefault();
+        startStop();
+    }
+};
+
+var leftKeyCodes = [37, 72, 65]; // left arrow, h, a
+var rightKeyCodes = [39, 76, 68]; // right arrow, l, d
+function onKeyDown(e) {
+    e = e || window.event;
+    if (leftKeyCodes.includes(e.keyCode)) {
+        e.preventDefault();
+        throttle = LEFT_PUSH;
+    }
+    if (rightKeyCodes.includes(e.keyCode)) {
+        e.preventDefault();
+        throttle = RIGHT_PUSH;
+    }
+}
+
+function onKeyUp(e) {
+    e = e || window.event;
+    if (leftKeyCodes.includes(e.keyCode) || rightKeyCodes.includes(e.keyCode)) {
+        e.preventDefault();
+        throttle = NO_PUSH;
+    }
+}
+
+function inLeftArrowBox(px, py) {
+    var d = fatFingerSize;
+    return (py > arrowY - d && py < arrowY + arrowHeight + d &&
+        px > arrowGap - d && px < arrowGap + arrowWidth + d);
+}
+
+function inRightArrowBox(px, py) {
+    var d = fatFingerSize;
+    return (py > arrowY - d && py < arrowY + arrowHeight + d &&
+        px > canvas.width - arrowGap - arrowWidth - d && px < canvas.width - arrowGap + d);
+}
+
+function canvasCoordsOf(e) {
+    if (e.type == "touchstart" || e.type == "touchmove") {
+        var touch = e.touches[0];
+        var rect = canvas.getBoundingClientRect();
+        return {
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top
+        };
+    } else {
+        return { x: e.offsetX, y: e.offsetY };
+    }
+}
+
+function onMouseDown(e) {
+    var pos = canvasCoordsOf(e);
+    if (inLeftArrowBox(pos.x, pos.y)) {
+        e.preventDefault();
+        throttle = LEFT_PUSH;
+        if (window.navigator.vibrate) window.navigator.vibrate(10);
+    }
+    if (inRightArrowBox(pos.x, pos.y)) {
+        e.preventDefault();
+        throttle = RIGHT_PUSH;
+        if (window.navigator.vibrate) window.navigator.vibrate(10);
+    }
+    mouseDown = true;
+}
+
+function onMouseUp(e) {
+    e.preventDefault();
+    if (mouseDown) {
+        e.preventDefault();
+        throttle = NO_PUSH;
+    }
+    mouseDown = false;
+}
+
+function attachListeners() {
+    canvas.onmousedown = onMouseDown;
+    canvas.onmouseup = onMouseUp;
+    canvas.onmouseout = onMouseUp;
+    canvas.addEventListener('touchstart', onMouseDown);
+    canvas.addEventListener('touchend', onMouseUp);
+    document.onkeydown = onKeyDown;
+    document.onkeyup = onKeyUp;
+}
+
+function detachListeners() {
+    canvas.onmousedown = null;
+    canvas.removeEventListener('touchstart', onMouseDown);
+    document.onkeydown = null;
+}
+
+// =========================
+// === ELEMENT LISTENERS ===
+// =========================
+startButton.onclick = startStop;
+resetButton.onclick = reset;
+immortalityCheckBox.onchange = function () { t = 0; paintCanvas(); };
+
+manualButton.onchange = function () {
+    advancedDiv.style.display = "none";
+    automaticMode = false;
+    if (running) {
+        attachListeners();
+    }
+    paintCanvas();
+};
+autoButton.onchange = function () {
+    advancedDiv.style.display = "inline-block";
+    automaticMode = true;
+    detachListeners();
+    paintCanvas();
+};
+
+codeRunButton.onclick = function () {
+    try {
+        pickAction = new Function("x", "xDot", "theta", "thetaDot", "t", "obj", codeBox.value);
+        codeRunSpan.innerHTML = "代码已运行。";
+        codeRunButton.disabled = true;
+    } catch (err) {
+        alert("错误:\n" + err.message);
+    }
+};
+codeBox.onchange = function () {
+    codeRunButton.disabled = false;
+    codeRunSpan.innerHTML = "";
+};
+codeBox.onkeyup = codeBox.onchange;
+codeBox.onpaste = codeBox.onchange;
+
+// pickAction: called each frame in automatic mode
+// `x` is the cart position, measured in pixels right of the canvas border.
+// `xDot` is the cart velocity.
+// `theta` is the pole angle, in radians from vertical. Clockwise is positive.
+// `thetaDot` is the angular velocity of the pole.
+// `t` is the number of time steps taken so far.
+// `obj` is any javascript object for keeping global state between calls.
+// Should return LEFT_PUSH, RIGHT_PUSH, or NO_PUSH.
+pickAction = new Function(
+    "x", "xDot", "theta", "thetaDot", "t", "obj", codeBox.value);
+
+// Draw the canvas once the page is ready
+window.addEventListener("load", function () {
+    resizeAndPaintCanvas();
+    updateStatePanel();
+});
+</script>
+
+</body>
+</html>
